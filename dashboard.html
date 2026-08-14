@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FAVOUR SAWMILL MONITORING</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #1a1a2e; color: white; margin: 0; padding: 20px; }
+    .header { background: #16213e; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 20px; }
+    .header h1 { margin: 0; color: #e94560; }
+    .container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 1200px; margin: 0 auto; }
+    .card { background: #16213e; padding: 20px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+    .card h2 { color: #e94560; margin-top: 0; }
+    .value { font-size: 36px; font-weight: bold; margin: 10px 0; }
+    .danger { color: #e94560; }
+    .safe { color: #2ecc71; }
+    .status-box { padding: 15px; border-radius: 8px; text-align: center; font-size: 18px; margin-top: 15px; }
+    .status-danger { background: #e94560; color: white; }
+    .status-safe { background: #2ecc71; color: white; }
+    #chart-container { width: 100%; height: 300px; margin-top: 20px; }
+    .loading { text-align: center; color: #888; padding: 50px; }
+    @media (max-width: 768px) { .container { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🌲 FAVOUR SAWMILL MONITORING SYSTEM</h1>
+    <p>Real-time Air Quality & Dust Monitoring</p>
+  </div>
+
+  <div class="container">
+    <div class="card">
+      <h2>📊 Live Data</h2>
+      <div class="value">PM2.5: <span id="pm25">--</span> µg/m³</div>
+      <div class="value">Fans: <span id="fans">--</span></div>
+      <div id="statusBox" class="status-box status-safe">✅ Air Quality Normal</div>
+      <div style="margin-top: 10px; font-size: 14px; color: #888;">
+        Last update: <span id="lastUpdate">--</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>📈 History Graph</h2>
+      <div id="chart-container">
+        <canvas id="chart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    // REPLACE THIS WITH YOUR ACTUAL GOOGLE CLOUD RUN URL
+    const API_URL = "https://YOUR_CLOUD_RUN_URL.a.run.app/api";
+    
+    const ctx = document.getElementById('chart').getContext('2d');
+    const chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'PM2.5 (µg/m³)',
+          data: [],
+          borderColor: '#e94560',
+          backgroundColor: 'rgba(233, 69, 96, 0.1)',
+          tension: 0.3,
+          fill: true,
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: { 
+            beginAtZero: true,
+            grid: { color: 'rgba(255,255,255,0.1)' },
+            ticks: { color: '#888' }
+          },
+          x: {
+            grid: { color: 'rgba(255,255,255,0.1)' },
+            ticks: { color: '#888' }
+          }
+        },
+        plugins: {
+          legend: { labels: { color: '#888' } }
+        }
+      }
+    });
+
+    async function fetchData() {
+      try {
+        // Get latest data
+        const latestRes = await fetch(`${API_URL}/latest`);
+        const latest = await latestRes.json();
+        
+        if (latest.status === 'no_data') {
+          document.getElementById('pm25').textContent = '--';
+          document.getElementById('fans').textContent = '--';
+          return;
+        }
+        
+        document.getElementById('pm25').textContent = latest.pm25 || 0;
+        document.getElementById('fans').textContent = latest.fan_active ? 'ON 🔵' : 'OFF';
+        document.getElementById('lastUpdate').textContent = latest.timestamp ? 
+          new Date(latest.timestamp._seconds * 1000).toLocaleTimeString() : '--';
+        
+        const statusBox = document.getElementById('statusBox');
+        if (latest.alert) {
+          statusBox.className = 'status-box status-danger';
+          statusBox.textContent = '🚨 ALERT! High Dust Level!';
+        } else {
+          statusBox.className = 'status-box status-safe';
+          statusBox.textContent = '✅ Air Quality Normal';
+        }
+        
+        // Get history
+        const historyRes = await fetch(`${API_URL}/history`);
+        const history = await historyRes.json();
+        
+        if (history.length > 0) {
+          chart.data.labels = history.map(d => {
+            if (d.timestamp && d.timestamp._seconds) {
+              return new Date(d.timestamp._seconds * 1000).toLocaleTimeString();
+            }
+            return '--';
+          }).reverse();
+          
+          chart.data.datasets[0].data = history.map(d => d.pm25 || 0).reverse();
+          chart.update();
+        }
+        
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        document.getElementById('pm25').textContent = 'Error';
+      }
+    }
+
+    // Refresh every 10 seconds
+    setInterval(fetchData, 10000);
+    fetchData();
+  </script>
+</body>
+</html>
